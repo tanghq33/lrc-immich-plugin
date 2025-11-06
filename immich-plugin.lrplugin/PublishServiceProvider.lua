@@ -15,6 +15,7 @@ return {
 	exportPresetFields = {
 		{ key = 'url', default = '' },
 		{ key = "apiKey", default = '' },
+		{ key = 'skipAlbum', default = false },
 	},
 
 	small_icon = 'icons/logo_small.png',

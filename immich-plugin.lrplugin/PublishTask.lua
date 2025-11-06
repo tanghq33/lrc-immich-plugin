@@ -16,7 +16,7 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
     end
 
     local publishedCollection = exportContext.publishedCollection
-    local skipAlbum = exportContext.skipAlbum
+    local skipAlbum = exportParams.skipAlbum
     local albumId
     local albumAssetIds = {}
 
@@ -37,7 +37,7 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
             exportSession:recordRemoteCollectionUrl(immich:getAlbumUrl(albumId))
         end
     else
-        log:trace('Skipping album creation/binding as per collection settings')
+        log:trace('Skipping album creation/binding as per publisher settings')
     end
 
 
@@ -168,7 +168,7 @@ function PublishTask.deletePhotosFromPublishedCollection(publishSettings, arrayO
 
     local catalog = LrApplication.activeCatalog()
     local publishedCollection = catalog:getPublishedCollectionByLocalIdentifier(localCollectionId)
-    local skipAlbum = publishedCollection and publishSettings.skipAlbum
+    local skipAlbum = publishSettings.skipAlbum
 
     local delete = LrDialogs.confirm('Delete photos', 'Should removed photos be trashed in Immich?', 'If not included in any album', 'No', 'Yes (dangerous!)')
 
@@ -222,9 +222,7 @@ function PublishTask.renamePublishedCollection(publishSettings, info)
     end
 
     -- Skip rename if collection has skipAlbum setting (no album to rename)
-    local catalog = LrApplication.activeCatalog()
-    local publishedCollection = catalog:getPublishedCollectionByLocalIdentifier(info.localCollectionId)
-    local skipAlbum = publishedCollection and publishSettings.skipAlbum
+    local skipAlbum = publishSettings.skipAlbum
     
     if skipAlbum then
         log:trace('Skipping album rename as publisher has skipAlbum enabled')

@@ -83,6 +83,17 @@ function PublishDialogSections.sectionsForTopOfDialog(f, propertyTable)
 				},
 			},
 		},
+		{
+			title = "Immich Publish Settings",
+			bind_to_object = propertyTable,
+			f:row {
+				f:checkbox {
+					title = "Do not create or add to an album",
+					value = bind 'skipAlbum',
+					immediate = true,
+				},
+			},
+		},
 	}
 
 	return result

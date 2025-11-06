@@ -16,19 +16,26 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
     end
 
     local publishedCollection = exportContext.publishedCollection
-    local albumId = publishedCollection and publishedCollection:getRemoteId()
-    local albumName = publishedCollection and publishedCollection:getName()
-    local albumAssetIds
+    local skipAlbum = publishedCollection and publishedCollection:getCollectionSettings().skipAlbum
+    local albumId
+    local albumAssetIds = {}
 
-    if albumId and immich:checkIfAlbumExists(albumId) then
-        albumAssetIds = immich:getAlbumAssetIds(albumId)
-        exportSession:recordRemoteCollectionId(albumId)
-        exportSession:recordRemoteCollectionUrl(immich:getAlbumUrl(albumId))
+    if not skipAlbum then
+        albumId = publishedCollection and publishedCollection:getRemoteId()
+        local albumName = publishedCollection and publishedCollection:getName()
+
+        if albumId and immich:checkIfAlbumExists(albumId) then
+            albumAssetIds = immich:getAlbumAssetIds(albumId)
+            exportSession:recordRemoteCollectionId(albumId)
+            exportSession:recordRemoteCollectionUrl(immich:getAlbumUrl(albumId))
+        else
+            albumId = immich:createAlbum(albumName)
+            albumAssetIds = {}
+            exportSession:recordRemoteCollectionId(albumId)
+            exportSession:recordRemoteCollectionUrl(immich:getAlbumUrl(albumId))
+        end
     else
-        albumId = immich:createAlbum(albumName)
-        albumAssetIds = {}
-        exportSession:recordRemoteCollectionId(albumId)
-        exportSession:recordRemoteCollectionUrl(immich:getAlbumUrl(albumId))
+        log:trace('Skipping album creation/binding as per collection settings')
     end
 
 
@@ -69,8 +76,10 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
                 rendition:recordPublishedPhotoId(id)
                 rendition:recordPublishedPhotoUrl(immich:getAssetUrl(id))
 
-                if util.table_contains(albumAssetIds, id) == false then
-                    immich:addAssetToAlbum(albumId, id)
+                if not skipAlbum and albumId then
+                    if util.table_contains(albumAssetIds, id) == false then
+                        immich:addAssetToAlbum(albumId, id)
+                    end
                 end
             end
 
@@ -155,13 +164,21 @@ function PublishTask.deletePhotosFromPublishedCollection(publishSettings, arrayO
         return nil
     end
 
-    local delete = LrDialogs.confirm('Delete photos', 'Should removed photos be trashed in Immich?', 'If not included in any album', 'No', 'Yes (dangerous!)')
-
     local catalog = LrApplication.activeCatalog()
     local publishedCollection = catalog:getPublishedCollectionByLocalIdentifier(localCollectionId)
+    local skipAlbum = publishedCollection and publishedCollection:getCollectionSettings().skipAlbum
+
+    local delete = LrDialogs.confirm('Delete photos', 'Should removed photos be trashed in Immich?', 'If not included in any album', 'No', 'Yes (dangerous!)')
 
     for i = 1, #arrayOfPhotoIds do
-        if immich:removeAssetFromAlbum(publishedCollection:getRemoteId(), arrayOfPhotoIds[i]) then
+        local removeSuccess = true
+        
+        -- Only try to remove from album if not skipAlbum
+        if not skipAlbum then
+            removeSuccess = immich:removeAssetFromAlbum(publishedCollection:getRemoteId(), arrayOfPhotoIds[i])
+        end
+        
+        if removeSuccess or skipAlbum then
             deletedCallback(arrayOfPhotoIds[i])
             local success = true
             
@@ -200,6 +217,16 @@ function PublishTask.renamePublishedCollection(publishSettings, info)
         util.handleError('Immich connection not working, probably due to wrong url and/or apiKey. Export stopped.', 
             'Immich connection not working, probably due to wrong url and/or apiKey. Export stopped.')
         return nil
+    end
+
+    -- Skip rename if collection has skipAlbum setting (no album to rename)
+    local catalog = LrApplication.activeCatalog()
+    local publishedCollection = catalog:getPublishedCollectionByLocalIdentifier(info.localCollectionId)
+    local skipAlbum = publishedCollection and publishedCollection:getCollectionSettings().skipAlbum
+    
+    if skipAlbum then
+        log:trace('Skipping album rename as collection has skipAlbum enabled')
+        return
     end
 
     -- remoteId is nil, if the collection isn't yet published.
@@ -255,19 +282,27 @@ function PublishTask.viewForCollectionSettings(f, publishSettings, info)
         fill_horizontal = 1,
         f:row {
             f:checkbox {
+                title = "Upload photos only (do not create/use album)",
+                value = bind 'skipAlbum',
+                tooltip = "When enabled, photos will be uploaded to Immich without being added to any album",
+            },
+        },
+        f:row {
+            f:checkbox {
                 title = "Bind to existing Immich Album",
                 value = bind 'bindtoExistingAlbum',
+                enabled = LrBinding.negativeOfKey('skipAlbum'),
             },
             f:static_text {
                 title = "Existing Immich Album:",
                 width = share "label_width",
-                enabled = bind 'bindtoExistingAlbum',
+                enabled = LrBinding.andAllKeys('bindtoExistingAlbum', LrBinding.negativeOfKey('skipAlbum')),
             },
             f:popup_menu {
                 items = bind 'immichAlbums',
                 value = bind 'selectedAlbum', -- Preselect "Please select"
                 width = share "field_width",
-                enabled = bind 'bindtoExistingAlbum',
+                enabled = LrBinding.andAllKeys('bindtoExistingAlbum', LrBinding.negativeOfKey('skipAlbum')),
             },
         },
     }
@@ -278,7 +313,11 @@ end
 function PublishTask.endDialogForCollectionSettings(publishSettings, info)
     log:trace("endDialogForCollectionSettings called")
     local props = info.pluginContext
-    if props.bindtoExistingAlbum and info.why == "ok" and props.selectedAlbum ~= 0 then
+    
+    if props.skipAlbum and info.why == "ok" then
+        log:trace("User selected to skip album creation/binding")
+        info.collectionSettings.skipAlbum = true
+    elseif props.bindtoExistingAlbum and info.why == "ok" and props.selectedAlbum ~= 0 then
         log:trace("User selected to bind collection to existing album with id " .. props.selectedAlbum)
         info.collectionSettings.boundToExistingAlbum = true
         info.collectionSettings.remoteId = props.selectedAlbum

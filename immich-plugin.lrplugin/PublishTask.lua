@@ -16,11 +16,13 @@ function PublishTask.processRenderedPhotos(functionContext, exportContext)
     end
 
     local publishedCollection = exportContext.publishedCollection
-    local skipAlbum = publishedCollection and publishedCollection:getCollectionSettings().skipAlbum
+    local skipAlbum = exportContext.skipAlbum
     local albumId
     local albumAssetIds = {}
 
+    -- Determine whether to skip album or not
     if not skipAlbum then
+        log:trace('Create or reusing album')
         albumId = publishedCollection and publishedCollection:getRemoteId()
         local albumName = publishedCollection and publishedCollection:getName()
 
@@ -166,7 +168,7 @@ function PublishTask.deletePhotosFromPublishedCollection(publishSettings, arrayO
 
     local catalog = LrApplication.activeCatalog()
     local publishedCollection = catalog:getPublishedCollectionByLocalIdentifier(localCollectionId)
-    local skipAlbum = publishedCollection and publishedCollection:getCollectionSettings().skipAlbum
+    local skipAlbum = publishedCollection and publishSettings.skipAlbum
 
     local delete = LrDialogs.confirm('Delete photos', 'Should removed photos be trashed in Immich?', 'If not included in any album', 'No', 'Yes (dangerous!)')
 
@@ -222,10 +224,10 @@ function PublishTask.renamePublishedCollection(publishSettings, info)
     -- Skip rename if collection has skipAlbum setting (no album to rename)
     local catalog = LrApplication.activeCatalog()
     local publishedCollection = catalog:getPublishedCollectionByLocalIdentifier(info.localCollectionId)
-    local skipAlbum = publishedCollection and publishedCollection:getCollectionSettings().skipAlbum
+    local skipAlbum = publishedCollection and publishSettings.skipAlbum
     
     if skipAlbum then
-        log:trace('Skipping album rename as collection has skipAlbum enabled')
+        log:trace('Skipping album rename as publisher has skipAlbum enabled')
         return
     end
 
@@ -282,27 +284,19 @@ function PublishTask.viewForCollectionSettings(f, publishSettings, info)
         fill_horizontal = 1,
         f:row {
             f:checkbox {
-                title = "Upload photos only (do not create/use album)",
-                value = bind 'skipAlbum',
-                tooltip = "When enabled, photos will be uploaded to Immich without being added to any album",
-            },
-        },
-        f:row {
-            f:checkbox {
                 title = "Bind to existing Immich Album",
                 value = bind 'bindtoExistingAlbum',
-                enabled = LrBinding.negativeOfKey('skipAlbum'),
             },
             f:static_text {
                 title = "Existing Immich Album:",
                 width = share "label_width",
-                enabled = LrBinding.andAllKeys('bindtoExistingAlbum', LrBinding.negativeOfKey('skipAlbum')),
+                enabled = bind 'bindtoExistingAlbum',
             },
             f:popup_menu {
                 items = bind 'immichAlbums',
                 value = bind 'selectedAlbum', -- Preselect "Please select"
                 width = share "field_width",
-                enabled = LrBinding.andAllKeys('bindtoExistingAlbum', LrBinding.negativeOfKey('skipAlbum')),
+                enabled = bind 'bindtoExistingAlbum',
             },
         },
     }
@@ -313,11 +307,7 @@ end
 function PublishTask.endDialogForCollectionSettings(publishSettings, info)
     log:trace("endDialogForCollectionSettings called")
     local props = info.pluginContext
-    
-    if props.skipAlbum and info.why == "ok" then
-        log:trace("User selected to skip album creation/binding")
-        info.collectionSettings.skipAlbum = true
-    elseif props.bindtoExistingAlbum and info.why == "ok" and props.selectedAlbum ~= 0 then
+    if props.bindtoExistingAlbum and info.why == "ok" and props.selectedAlbum ~= 0 then
         log:trace("User selected to bind collection to existing album with id " .. props.selectedAlbum)
         info.collectionSettings.boundToExistingAlbum = true
         info.collectionSettings.remoteId = props.selectedAlbum
